@@ -1443,30 +1443,93 @@ function showToast(msg, type='success') {
 
 <script>
 // ══════════════════════════════════════════════
-// LOGIN SYSTEM
+// LOGIN SYSTEM — ROLE-BASED ACCESS CONTROL
 // ══════════════════════════════════════════════
+//
+// Cara menambah / mengedit user:
+//   username : { pass: 'PASSWORD', role: 'admin' | 'viewer', name: 'Nama Tampilan' }
+//
+// Role 'admin'  → bisa input, edit, hapus transaksi
+// Role 'viewer' → hanya bisa lihat & export (read-only)
+//
 const USERS = {
-  'FAJPCKPC': 'YOLANDA'
+  'FAJPCKPC':  { pass: 'YOLANDA',  role: 'admin',  name: 'Yolanda (Admin)' },
+  'VIEWER01':  { pass: 'LIHAT123', role: 'viewer', name: 'Staff Viewer' },
+  'MANAJER':   { pass: 'MGR2026',  role: 'viewer', name: 'Manager (Read Only)' }
 };
 
+let currentRole = null;
+
 function doLogin() {
-  const user = document.getElementById('login-user').value.trim();
+  const user = document.getElementById('login-user').value.trim().toUpperCase();
   const pass = document.getElementById('login-pass').value.trim();
   const err  = document.getElementById('login-error');
 
-  if (USERS[user] && USERS[user] === pass) {
+  const found = USERS[user];
+  if (found && found.pass === pass) {
     err.style.display = 'none';
+    currentRole = found.role;
+    sessionStorage.setItem('jpc_logged', '1');
+    sessionStorage.setItem('jpc_role', found.role);
+    sessionStorage.setItem('jpc_name', found.name);
+
     document.getElementById('login-screen').style.display = 'none';
     document.getElementById('main-app').style.display = 'flex';
-    sessionStorage.setItem('jpc_logged', '1');
+
+    applyRoleUI(found.role, found.name);
   } else {
     err.style.display = 'block';
     document.getElementById('login-pass').value = '';
     document.getElementById('login-pass').focus();
-    // Shake animation
     const card = document.getElementById('login-screen').querySelector('div');
     card.style.animation = 'shake .4s ease';
     setTimeout(() => card.style.animation = '', 400);
+  }
+}
+
+// ── Terapkan pembatasan UI berdasarkan role ──────────────────────────────────
+function applyRoleUI(role, name) {
+  // Update nama user di sidebar
+  const userInfoEl = document.querySelector('.user-info p');
+  const userRoleEl = document.querySelector('.user-info span');
+  if (userInfoEl) userInfoEl.textContent = name;
+  if (userRoleEl) userRoleEl.textContent = role === 'admin' ? 'Admin — Full Access' : 'Viewer — Read Only';
+
+  if (role === 'viewer') {
+    // Sembunyikan semua tombol input/edit/hapus
+    const hiddenSelectors = [
+      '#page-transaksi .actions-bar .btn-red',   // tombol Input Transaksi Kredit
+      '#page-debet .actions-bar .btn-green',     // tombol Input Debet
+      '.nav-item[onclick*="input"]',             // menu Input Transaksi di sidebar
+    ];
+    hiddenSelectors.forEach(sel => {
+      document.querySelectorAll(sel).forEach(el => el.style.display = 'none');
+    });
+
+    // Pasang interceptor: kalau viewer coba klik tombol edit/delete yg di-render dinamis
+    document.addEventListener('click', function(e) {
+      const btn = e.target.closest('.btn-icon.edit, .btn-icon.del');
+      if (btn) {
+        e.stopImmediatePropagation();
+        e.preventDefault();
+        showToast('⛔ Akses ditolak — Anda hanya bisa melihat data', 'error');
+      }
+    }, true);
+
+    // Intercept fungsi-fungsi write agar tidak bisa dipanggil
+    window.openModalKredit = function() { showToast('⛔ Akses ditolak — Anda hanya bisa melihat data', 'error'); };
+    window.openModalDebet  = function() { showToast('⛔ Akses ditolak — Anda hanya bisa melihat data', 'error'); };
+    window.confirmDel      = function() { showToast('⛔ Akses ditolak — Anda hanya bisa melihat data', 'error'); };
+    window.saveKredit      = function() { showToast('⛔ Akses ditolak — Anda hanya bisa melihat data', 'error'); };
+    window.saveDebet       = function() { showToast('⛔ Akses ditolak — Anda hanya bisa melihat data', 'error'); };
+    window.doDelete        = function() { showToast('⛔ Akses ditolak — Anda hanya bisa melihat data', 'error'); };
+
+    // Tampilkan banner read-only di topbar
+    const banner = document.createElement('div');
+    banner.style.cssText = 'background:#FFF8E6;border-bottom:1px solid #F0A500;padding:7px 28px;font-size:12px;color:#9B6A00;font-weight:600;display:flex;align-items:center;gap:8px;';
+    banner.innerHTML = '👁️ <span>Mode <strong>Read-Only</strong> — Anda hanya dapat melihat dan mengekspor data. Hubungi Admin untuk perubahan.</span>';
+    const topbar = document.querySelector('.topbar');
+    if (topbar) topbar.insertAdjacentElement('afterend', banner);
   }
 }
 
@@ -1484,8 +1547,13 @@ function togglePass() {
 
 // Cek session — kalau sudah login sebelumnya langsung masuk
 if (sessionStorage.getItem('jpc_logged') === '1') {
+  const savedRole = sessionStorage.getItem('jpc_role') || 'viewer';
+  const savedName = sessionStorage.getItem('jpc_name') || 'User';
+  currentRole = savedRole;
   document.getElementById('login-screen').style.display = 'none';
   document.getElementById('main-app').style.display = 'flex';
+  // Terapkan role setelah DOM siap
+  setTimeout(() => applyRoleUI(savedRole, savedName), 0);
 }
 
 // Shake keyframes
